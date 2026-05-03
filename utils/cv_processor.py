@@ -2,426 +2,433 @@ import re
 import os
 from typing import Dict, List, Optional
 from datetime import datetime
+
 import PyPDF2
 import docx
+
 from utils.field_config import get_field_config
+
 
 class AdvancedCVProcessor:
     """Advanced CV processor with detailed extraction capabilities"""
-    
-    def __init__(self, field="Software Engineering"):
+
+    def __init__(self, field: str = "Software Engineering"):
         self.field = field
         self.field_config = get_field_config(field)
-        self.skills_keywords = self.field_config["skills"]
-        self.certifications_keywords = self.field_config.get("certifications", [])
-    
+        self.skills_keywords: List[str] = self.field_config.get("skills", [])
+        self.certifications_keywords: List[str] = self.field_config.get("certifications", [])
+
+    # ------------------------------------------------------------------ #
+    #  PUBLIC API                                                          #
+    # ------------------------------------------------------------------ #
+
     def process(self, file_path: str, filename: str, field: str = None) -> Dict:
         """Process a CV file and extract comprehensive information"""
-        
-        if field:
+
+        if field and field != self.field:
             self.field = field
             self.field_config = get_field_config(field)
-            self.skills_keywords = self.field_config["skills"]
+            self.skills_keywords = self.field_config.get("skills", [])
             self.certifications_keywords = self.field_config.get("certifications", [])
-        
-        # Extract text
+
         text = self._read_file(file_path)
-        
-        # Extract comprehensive information
+
         cv_data = {
-            'filename': filename,
-            'field': self.field,
-            'name': self._extract_name(text, filename),
-            'email': self._extract_email(text),
-            'phone': self._extract_phone(text),
-            'location': self._extract_location(text),
-            'linkedin': self._extract_linkedin(text),
-            'github': self._extract_github(text),
-            'website': self._extract_website(text),
-            
+            "filename": filename,
+            "field": self.field,
+            "name": self._extract_name(text, filename),
+            "email": self._extract_email(text),
+            "phone": self._extract_phone(text),
+            "location": self._extract_location(text),
+            "linkedin": self._extract_linkedin(text),
+            "github": self._extract_github(text),
+            "website": self._extract_website(text),
             # Core sections
-            'skills': self._extract_skills(text),
-            'education': self._extract_education(text),
-            'experience': self._extract_experience(text),
-            'projects': self._extract_projects(text),
-            'certifications': self._extract_certifications(text),
-            'licenses': self._extract_licenses(text),
-            'achievements': self._extract_achievements(text),
-            'languages': self._extract_languages(text),
-            
+            "skills": self._extract_skills(text),
+            "education": self._extract_education(text),
+            "experience": self._extract_experience(text),
+            "projects": self._extract_projects(text),
+            "certifications": self._extract_certifications(text),
+            "licenses": self._extract_licenses(text),
+            "achievements": self._extract_achievements(text),
+            "languages": self._extract_languages(text),
             # Calculated fields
-            'years_of_experience': self._calculate_experience_years(text),
-            'experience_level': self._determine_experience_level(text),
-            'education_level': self._determine_education_level(text),
-            
+            "years_of_experience": self._calculate_experience_years(text),
+            "experience_level": self._determine_experience_level(text),
+            "education_level": self._determine_education_level(text),
             # Summary
-            'summary': self._create_summary(text),
-            'full_text': text,
-            
+            "summary": self._create_summary(text),
+            "full_text": text,
             # Metadata
-            'processed_date': datetime.now().isoformat(),
-            'file_size': os.path.getsize(file_path) if os.path.exists(file_path) else 0
+            "processed_date": datetime.now().isoformat(),
+            "file_size": os.path.getsize(file_path) if os.path.exists(file_path) else 0,
         }
-        
+
         return cv_data
-    
+
+    # ------------------------------------------------------------------ #
+    #  FILE READING                                                        #
+    # ------------------------------------------------------------------ #
+
     def _read_file(self, path: str) -> str:
-        """Read file content based on format"""
-        
-        if path.endswith('.pdf'):
+        ext = os.path.splitext(path)[1].lower()
+        if ext == ".pdf":
             return self._read_pdf(path)
-        elif path.endswith('.docx'):
+        elif ext == ".docx":
             return self._read_docx(path)
-        elif path.endswith('.txt'):
+        elif ext == ".txt":
             return self._read_txt(path)
         return ""
-    
+
     def _read_pdf(self, path: str) -> str:
-        """Extract text from PDF"""
         text = ""
         try:
-            with open(path, 'rb') as f:
+            with open(path, "rb") as f:
                 reader = PyPDF2.PdfReader(f)
                 for page in reader.pages:
-                    text += page.extract_text() + "\n"
+                    extracted = page.extract_text()
+                    if extracted:
+                        text += extracted + "\n"
         except Exception as e:
-            print(f"Error reading PDF: {e}")
+            print(f"Error reading PDF {path}: {e}")
         return text
-    
+
     def _read_docx(self, path: str) -> str:
-        """Extract text from DOCX"""
         text = ""
         try:
             doc = docx.Document(path)
             for paragraph in doc.paragraphs:
                 text += paragraph.text + "\n"
         except Exception as e:
-            print(f"Error reading DOCX: {e}")
+            print(f"Error reading DOCX {path}: {e}")
         return text
-    
+
     def _read_txt(self, path: str) -> str:
-        """Extract text from TXT"""
         try:
-            with open(path, 'r', encoding='utf-8', errors='ignore') as f:
+            with open(path, "r", encoding="utf-8", errors="ignore") as f:
                 return f.read()
         except Exception as e:
-            print(f"Error reading TXT: {e}")
+            print(f"Error reading TXT {path}: {e}")
             return ""
-    
+
+    # ------------------------------------------------------------------ #
+    #  PERSONAL INFO EXTRACTION                                            #
+    # ------------------------------------------------------------------ #
+
     def _extract_name(self, text: str, filename: str) -> str:
-        """Extract candidate name"""
-        lines = text.split('\n')
-        for line in lines[:7]:
-            line = line.strip()
-            # Name heuristics
-            if line and 2 <= len(line.split()) <= 4 and len(line) < 50:
-                # Check if it looks like a name (no numbers, not all caps unless 2 words)
-                if not re.search(r'\d', line):
-                    words = line.split()
-                    if len(words) >= 2:
-                        return line
-        
-        return filename.replace('.pdf', '').replace('.docx', '').replace('.txt', '').replace('_', ' ').title()
-    
+        """Extract candidate name from the first few lines"""
+        lines = [ln.strip() for ln in text.split("\n") if ln.strip()]
+
+        # Section headers and noise to skip
+        skip_patterns = re.compile(
+            r"(curriculum vitae|resume|cv|objective|summary|profile|contact|"
+            r"address|phone|email|linkedin|github|www\.|http)",
+            re.IGNORECASE,
+        )
+
+        for line in lines[:10]:
+            # Must have 2-4 words, all alphabetic (allow hyphens & apostrophes)
+            words = line.split()
+            if 2 <= len(words) <= 4:
+                if all(re.match(r"^[A-Za-z\-'\.]+$", w) for w in words):
+                    if not skip_patterns.search(line):
+                        return line.title()
+
+        # Fallback: derive from filename
+        base = os.path.splitext(filename)[0]
+        return base.replace("_", " ").replace("-", " ").title()
+
     def _extract_email(self, text: str) -> str:
-        """Extract email address"""
-        pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
-        emails = re.findall(pattern, text)
-        return emails[0] if emails else "Not provided"
-    
+        pattern = r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}"
+        matches = re.findall(pattern, text)
+        return matches[0] if matches else "Not provided"
+
     def _extract_phone(self, text: str) -> str:
-        """Extract phone number"""
         patterns = [
-            r'\+?\d{1,3}[-.\s]?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}',
-            r'\d{3}-\d{3}-\d{4}',
-            r'\(\d{3}\)\s*\d{3}-\d{4}',
-            r'\d{10}'
+            r"\+?1?\s*[\-.]?\(?\d{3}\)?[\s.\-]?\d{3}[\s.\-]?\d{4}",
+            r"\+\d{1,3}[\s\-]?\d{6,12}",
+            r"\d{10}",
         ]
-        
         for pattern in patterns:
-            phones = re.findall(pattern, text)
-            if phones:
-                return phones[0]
-        
+            matches = re.findall(pattern, text)
+            if matches:
+                return matches[0].strip()
         return "Not provided"
-    
+
     def _extract_location(self, text: str) -> str:
-        """Extract location/address"""
-        # Look for city, state patterns
-        location_pattern = r'([A-Z][a-z]+,\s*[A-Z]{2}|\b(?:New York|Los Angeles|Chicago|Houston|Phoenix|Philadelphia|San Antonio|San Diego|Dallas|San Jose|Austin|Jacksonville|Fort Worth|Columbus|Charlotte|San Francisco|Indianapolis|Seattle|Denver|Washington|Boston|Nashville|Baltimore|Oklahoma City|Portland|Las Vegas|Milwaukee|Albuquerque|Tucson|Fresno|Sacramento|Kansas City|Atlanta|Miami|Raleigh|Omaha|Colorado Springs|Virginia Beach)\b)'
-        locations = re.findall(location_pattern, text, re.IGNORECASE)
-        return locations[0] if locations else "Not specified"
-    
-    def _extract_linkedin(self, text: str) -> str:
-        """Extract LinkedIn URL"""
-        pattern = r'linkedin\.com/in/[\w-]+'
-        linkedin = re.findall(pattern, text.lower())
-        return f"https://{linkedin[0]}" if linkedin else "Not provided"
-    
-    def _extract_github(self, text: str) -> str:
-        """Extract GitHub URL"""
-        pattern = r'github\.com/[\w-]+'
-        github = re.findall(pattern, text.lower())
-        return f"https://{github[0]}" if github else "Not provided"
-    
-    def _extract_website(self, text: str) -> str:
-        """Extract personal website"""
-        pattern = r'https?://(?:www\.)?[\w\-\.]+\.\w{2,}(?:/[\w\-\.]*)*'
-        websites = re.findall(pattern, text)
-        # Filter out common sites (LinkedIn, GitHub, email providers)
-        excluded = ['linkedin', 'github', 'gmail', 'yahoo', 'outlook', 'hotmail']
-        for site in websites:
-            if not any(ex in site.lower() for ex in excluded):
-                return site
-        return "Not provided"
-    
-    def _extract_skills(self, text: str) -> List[str]:
-        """Extract technical skills based on field"""
-        text_lower = text.lower()
-        found_skills = set()
-        
-        # Match against field-specific skills
-        for skill in self.skills_keywords:
-            if skill.lower() in text_lower:
-                found_skills.add(skill.title())
-        
-        # Also check skills section specifically
-        skills_section = re.search(
-            r'(?:technical\s+)?skills?:?(.*?)(?:experience|education|projects|certifications|$)',
-            text_lower, 
-            re.DOTALL | re.IGNORECASE
-        )
-        
-        if skills_section:
-            skills_text = skills_section.group(1)
-            # Extract comma-separated or newline-separated skills
-            potential_skills = re.split(r'[,\n•·]', skills_text)
-            for skill in potential_skills:
-                skill = skill.strip()
-                if 2 < len(skill) < 30 and not skill.isdigit():
-                    found_skills.add(skill.title())
-        
-        return sorted(list(found_skills))[:30]  # Return top 30 skills
-    
-    def _extract_education(self, text: str) -> str:
-        """Extract education information"""
-        keywords = ['education', 'degree', 'bachelor', 'master', 'phd', 'doctorate', 'university', 'college', 'b.s.', 'm.s.', 'b.a.', 'm.a.']
-        
-        lines = text.split('\n')
-        education_lines = []
-        capture = False
-        
-        for i, line in enumerate(lines):
-            line_lower = line.lower()
-            
-            # Start capturing
-            if any(keyword in line_lower for keyword in keywords):
-                capture = True
-            
-            # Capture lines
-            if capture:
-                if line.strip():
-                    education_lines.append(line.strip())
-                
-                # Stop at next major section
-                if i > 0 and any(keyword in line_lower for keyword in ['experience', 'work history', 'employment', 'skills', 'projects']):
-                    if len(education_lines) > 2:
-                        break
-            
-            if len(education_lines) > 10:
-                break
-        
-        return ' '.join(education_lines[:10]) if education_lines else "Not specified"
-    
-    def _extract_experience(self, text: str) -> str:
-        """Extract work experience"""
-        keywords = ['experience', 'work history', 'employment', 'professional experience', 'work experience']
-        
-        lines = text.split('\n')
-        experience_lines = []
-        capture = False
-        
-        for i, line in enumerate(lines):
-            line_lower = line.lower()
-            
-            if any(keyword in line_lower for keyword in keywords):
-                capture = True
-            
-            if capture:
-                if line.strip():
-                    experience_lines.append(line.strip())
-                
-                # Stop at next section
-                if i > 0 and any(keyword in line_lower for keyword in ['education', 'skills', 'projects', 'certifications', 'licenses']):
-                    if len(experience_lines) > 3:
-                        break
-            
-            if len(experience_lines) > 20:
-                break
-        
-        return ' '.join(experience_lines[:20]) if experience_lines else "Not specified"
-    
-    def _extract_projects(self, text: str) -> str:
-        """Extract projects"""
-        keywords = ['projects', 'portfolio', 'work samples']
-        
-        lines = text.split('\n')
-        project_lines = []
-        capture = False
-        
-        for line in lines:
-            line_lower = line.lower()
-            
-            if any(keyword in line_lower for keyword in keywords):
-                capture = True
-            
-            if capture:
-                if line.strip():
-                    project_lines.append(line.strip())
-                
-                if any(keyword in line_lower for keyword in ['education', 'skills', 'experience', 'certifications']):
-                    if len(project_lines) > 2:
-                        break
-            
-            if len(project_lines) > 15:
-                break
-        
-        return ' '.join(project_lines[:15]) if project_lines else "No projects listed"
-    
-    def _extract_certifications(self, text: str) -> List[str]:
-        """Extract certifications"""
-        text_lower = text.lower()
-        found_certs = set()
-        
-        # Match field-specific certifications
-        for cert in self.certifications_keywords:
-            if cert.lower() in text_lower:
-                found_certs.add(cert.title())
-        
-        # Also look for certification section
-        cert_section = re.search(
-            r'certifications?:?(.*?)(?:education|experience|skills|$)',
-            text_lower,
-            re.DOTALL | re.IGNORECASE
-        )
-        
-        if cert_section:
-            cert_text = cert_section.group(1)
-            potential_certs = re.split(r'[,\n•·]', cert_text)
-            for cert in potential_certs:
-                cert = cert.strip()
-                if 3 < len(cert) < 50:
-                    found_certs.add(cert.title())
-        
-        return sorted(list(found_certs))
-    
-    def _extract_licenses(self, text: str) -> List[str]:
-        """Extract professional licenses"""
-        license_keywords = ['license', 'licensed', 'registration', 'registered']
-        text_lower = text.lower()
-        found_licenses = []
-        
-        # Look for license section
-        for keyword in license_keywords:
-            if keyword in text_lower:
-                # Extract context around keyword
-                pattern = rf'.{{0,50}}{keyword}.{{0,50}}'
-                matches = re.findall(pattern, text_lower)
-                found_licenses.extend([m.strip() for m in matches])
-        
-        return list(set(found_licenses))[:5]
-    
-    def _extract_achievements(self, text: str) -> str:
-        """Extract achievements and awards"""
-        keywords = ['achievements', 'awards', 'honors', 'recognition', 'accomplishments']
-        
-        lines = text.split('\n')
-        achievement_lines = []
-        capture = False
-        
-        for line in lines:
-            line_lower = line.lower()
-            
-            if any(keyword in line_lower for keyword in keywords):
-                capture = True
-            
-            if capture:
-                if line.strip():
-                    achievement_lines.append(line.strip())
-                
-                if any(keyword in line_lower for keyword in ['education', 'skills', 'experience']):
-                    if len(achievement_lines) > 2:
-                        break
-            
-            if len(achievement_lines) > 10:
-                break
-        
-        return ' '.join(achievement_lines[:10]) if achievement_lines else "No achievements listed"
-    
-    def _extract_languages(self, text: str) -> List[str]:
-        """Extract spoken languages"""
-        language_keywords = ['english', 'spanish', 'french', 'german', 'chinese', 'japanese', 
-                             'arabic', 'hindi', 'urdu', 'russian', 'portuguese', 'italian']
-        text_lower = text.lower()
-        found_languages = []
-        
-        for lang in language_keywords:
-            if lang in text_lower:
-                found_languages.append(lang.title())
-        
-        return found_languages
-    
-    def _calculate_experience_years(self, text: str) -> float:
-        """Calculate total years of experience"""
-        # Look for patterns like "5 years", "5+ years", "2-4 years"
-        patterns = [
-            r'(\d+)\+?\s*years?\s+(?:of\s+)?experience',
-            r'experience:?\s*(\d+)\+?\s*years?'
+        # City, STATE pattern (e.g. Austin, TX)
+        pattern = r"\b[A-Z][a-zA-Z\s]+,\s*[A-Z]{2}\b"
+        matches = re.findall(pattern, text)
+        if matches:
+            return matches[0].strip()
+
+        # Known major cities
+        cities = [
+            "New York", "Los Angeles", "Chicago", "Houston", "Phoenix",
+            "San Francisco", "Seattle", "Boston", "Austin", "Denver",
+            "Atlanta", "Miami", "Dallas", "San Diego", "Washington",
+            "Islamabad", "Karachi", "Lahore", "London", "Toronto", "Sydney",
         ]
-        
-        years = []
-        for pattern in patterns:
-            matches = re.findall(pattern, text.lower())
-            years.extend([int(y) for y in matches])
-        
-        # Also try to extract from date ranges (2020-2024 = 4 years)
-        date_ranges = re.findall(r'(\d{4})\s*[-–]\s*(\d{4}|present|current)', text.lower())
-        for start, end in date_ranges:
-            end_year = datetime.now().year if end in ['present', 'current'] else int(end)
-            years.append(end_year - int(start))
-        
-        return max(years) if years else 0.0
-    
+        text_lower = text.lower()
+        for city in cities:
+            if city.lower() in text_lower:
+                return city
+
+        return "Not specified"
+
+    def _extract_linkedin(self, text: str) -> str:
+        match = re.search(r"linkedin\.com/in/[\w\-]+", text, re.IGNORECASE)
+        return f"https://{match.group()}" if match else "Not provided"
+
+    def _extract_github(self, text: str) -> str:
+        match = re.search(r"github\.com/[\w\-]+", text, re.IGNORECASE)
+        return f"https://{match.group()}" if match else "Not provided"
+
+    def _extract_website(self, text: str) -> str:
+        pattern = r"https?://(?:www\.)?[\w\-\.]+\.\w{2,}(?:/[\w\-\./?=%&]*)*"
+        excluded = {"linkedin", "github", "gmail", "yahoo", "outlook", "hotmail"}
+        for url in re.findall(pattern, text):
+            if not any(ex in url.lower() for ex in excluded):
+                return url
+        return "Not provided"
+
+    # ------------------------------------------------------------------ #
+    #  CONTENT EXTRACTION                                                  #
+    # ------------------------------------------------------------------ #
+
+    def _extract_skills(self, text: str) -> List[str]:
+        """Extract technical skills based on field keywords"""
+        text_lower = text.lower()
+        found_skills: set = set()
+
+        # 1) Match against field-specific keyword list
+        for skill in self.skills_keywords:
+            # Use word-boundary-aware matching for short tokens
+            pattern = r"\b" + re.escape(skill.lower()) + r"\b"
+            if re.search(pattern, text_lower):
+                found_skills.add(skill.title())
+
+        # 2) Extract from an explicit "Skills" section (comma/bullet separated)
+        skills_section_match = re.search(
+            r"(?:technical\s+)?skills?\s*[:\-]\s*(.*?)(?=\n\s*\n|\Z|"
+            r"(?:experience|education|projects?|certifications?|work\s+history))",
+            text_lower,
+            re.DOTALL | re.IGNORECASE,
+        )
+        if skills_section_match:
+            raw = skills_section_match.group(1)
+            for token in re.split(r"[,\n•·|/]", raw):
+                token = token.strip().strip("•·-–—").strip()
+                if 2 < len(token) < 35 and not token.isdigit():
+                    found_skills.add(token.title())
+
+        return sorted(found_skills)[:30]
+
+    def _extract_section(
+        self,
+        text: str,
+        start_keywords: List[str],
+        stop_keywords: List[str],
+        max_lines: int = 20,
+    ) -> str:
+        """Generic section extractor"""
+        lines = text.split("\n")
+        section_lines: List[str] = []
+        capturing = False
+
+        for line in lines:
+            line_lower = line.lower().strip()
+
+            if not capturing:
+                if any(kw in line_lower for kw in start_keywords):
+                    capturing = True
+                    section_lines.append(line.strip())
+            else:
+                # Stop when we hit a different major section
+                if any(kw in line_lower for kw in stop_keywords) and section_lines:
+                    break
+                if line.strip():
+                    section_lines.append(line.strip())
+                if len(section_lines) >= max_lines:
+                    break
+
+        return " ".join(section_lines).strip() if section_lines else "Not specified"
+
+    def _extract_education(self, text: str) -> str:
+        return self._extract_section(
+            text,
+            start_keywords=["education", "academic", "qualification", "degree"],
+            stop_keywords=["experience", "work history", "employment", "skills", "projects"],
+            max_lines=10,
+        )
+
+    def _extract_experience(self, text: str) -> str:
+        return self._extract_section(
+            text,
+            start_keywords=[
+                "experience", "work history", "employment",
+                "professional experience", "work experience",
+            ],
+            stop_keywords=["education", "skills", "projects", "certifications", "licenses"],
+            max_lines=25,
+        )
+
+    def _extract_projects(self, text: str) -> str:
+        result = self._extract_section(
+            text,
+            start_keywords=["projects", "portfolio", "work samples"],
+            stop_keywords=["education", "skills", "experience", "certifications"],
+            max_lines=15,
+        )
+        return result if result != "Not specified" else "No projects listed"
+
+    def _extract_certifications(self, text: str) -> List[str]:
+        text_lower = text.lower()
+        found: set = set()
+
+        for cert in self.certifications_keywords:
+            if re.search(r"\b" + re.escape(cert.lower()) + r"\b", text_lower):
+                found.add(cert.upper())
+
+        # Also parse a Certifications section
+        match = re.search(
+            r"certifications?\s*[:\-]?\s*(.*?)(?=\n\s*\n|\Z|"
+            r"(?:education|experience|skills|work\s+history))",
+            text_lower,
+            re.DOTALL | re.IGNORECASE,
+        )
+        if match:
+            for token in re.split(r"[,\n•·]", match.group(1)):
+                token = token.strip()
+                if 3 < len(token) < 60:
+                    found.add(token.title())
+
+        return sorted(found)
+
+    def _extract_licenses(self, text: str) -> List[str]:
+        found: set = set()
+        pattern = r".{0,60}(?:licens(?:e|ed|ing)|registered|registration).{0,60}"
+        for match in re.finditer(pattern, text, re.IGNORECASE):
+            snippet = match.group().strip()
+            if len(snippet) > 5:
+                found.add(snippet)
+        return list(found)[:5]
+
+    def _extract_achievements(self, text: str) -> str:
+        result = self._extract_section(
+            text,
+            start_keywords=["achievement", "award", "honor", "recognition", "accomplishment"],
+            stop_keywords=["education", "skills", "experience"],
+            max_lines=10,
+        )
+        return result if result != "Not specified" else "No achievements listed"
+
+    def _extract_languages(self, text: str) -> List[str]:
+        known = [
+            "english", "spanish", "french", "german", "chinese", "japanese",
+            "arabic", "hindi", "urdu", "russian", "portuguese", "italian",
+            "korean", "dutch", "swedish", "turkish",
+        ]
+        text_lower = text.lower()
+        return [lang.title() for lang in known if re.search(r"\b" + lang + r"\b", text_lower)]
+
+    # ------------------------------------------------------------------ #
+    #  CALCULATED FIELDS                                                   #
+    # ------------------------------------------------------------------ #
+
+    def _calculate_experience_years(self, text: str) -> float:
+        """
+        Estimate total years of experience.
+        Strategy:
+          1. Look for explicit "N years experience" statements → take max.
+          2. Sum non-overlapping date ranges (YYYY–YYYY or YYYY–present).
+          Return the greater of the two.
+        """
+        years_list: List[float] = []
+
+        # --- Pattern 1: "5 years of experience" / "5+ years" ---
+        for m in re.finditer(
+            r"(\d+(?:\.\d+)?)\+?\s*years?\s+(?:of\s+)?experience",
+            text,
+            re.IGNORECASE,
+        ):
+            years_list.append(float(m.group(1)))
+
+        # --- Pattern 2: date ranges ---
+        current_year = datetime.now().year
+        date_range_years: List[int] = []
+        for m in re.finditer(
+            r"(\d{4})\s*[-–—]\s*((\d{4})|present|current|now)",
+            text,
+            re.IGNORECASE,
+        ):
+            start = int(m.group(1))
+            end_raw = m.group(2).lower()
+            end = current_year if end_raw in ("present", "current", "now") else int(end_raw)
+            duration = end - start
+            if 0 < duration <= 50:          # Sanity check
+                date_range_years.append(duration)
+
+        if date_range_years:
+            years_list.append(float(sum(date_range_years)))
+
+        if not years_list:
+            return 0.0
+
+        # Return the maximum credible value
+        return min(max(years_list), 50.0)
+
     def _determine_experience_level(self, text: str) -> str:
-        """Determine experience level based on years"""
+        """
+        Determine experience level.
+        Iterates levels from highest to lowest so overlapping ranges
+        resolve to the most senior applicable level.
+        """
         years = self._calculate_experience_years(text)
         levels = self.field_config.get("experience_levels", {})
-        
-        for level, range_dict in levels.items():
-            if range_dict["min_years"] <= years <= range_dict["max_years"]:
-                return level.title()
-        
+
+        if not levels:
+            if years == 0:
+                return "Entry Level"
+            elif years < 3:
+                return "Junior"
+            elif years < 7:
+                return "Mid-Level"
+            else:
+                return "Senior"
+
+        # Sort levels by min_years descending so senior is checked first
+        sorted_levels = sorted(
+            levels.items(),
+            key=lambda item: item[1].get("min_years", 0),
+            reverse=True,
+        )
+
+        for level_name, range_dict in sorted_levels:
+            min_y = range_dict.get("min_years", 0)
+            max_y = range_dict.get("max_years", 100)
+            if min_y <= years <= max_y:
+                return level_name.title()
+
         return "Unknown"
-    
+
     def _determine_education_level(self, text: str) -> str:
-        """Determine highest education level"""
         text_lower = text.lower()
-        
-        if any(keyword in text_lower for keyword in ['phd', 'ph.d', 'doctorate', 'doctoral']):
+
+        if re.search(r"\b(?:ph\.?d|doctorate|doctoral)\b", text_lower):
             return "PhD"
-        elif any(keyword in text_lower for keyword in ['master', 'm.s.', 'm.a.', 'mba', 'msc']):
+        if re.search(r"\b(?:master|m\.s\.|m\.a\.|mba|msc|m\.eng)\b", text_lower):
             return "Master's"
-        elif any(keyword in text_lower for keyword in ['bachelor', 'b.s.', 'b.a.', 'b.tech', 'bsc']):
+        if re.search(r"\b(?:bachelor|b\.s\.|b\.a\.|b\.tech|bsc|b\.eng|be\b)\b", text_lower):
             return "Bachelor's"
-        elif any(keyword in text_lower for keyword in ['associate', 'diploma']):
+        if re.search(r"\b(?:associate|diploma|a\.s\.|a\.a\.)\b", text_lower):
             return "Associate/Diploma"
-        else:
-            return "Not specified"
-    
+
+        return "Not specified"
+
     def _create_summary(self, text: str) -> str:
-        """Create executive summary"""
-        # Take first 600 characters
-        summary = text[:600].replace('\n', ' ').strip()
+        """Return first ~600 characters as a summary"""
+        summary = " ".join(text.split())[:600]
         if len(text) > 600:
-            summary += "..."
+            summary += "…"
         return summary
